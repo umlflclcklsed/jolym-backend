@@ -27,25 +27,14 @@ except Exception as e:
     AI_GENERATION_SUPPORTED = False
 
 def clean_content(content: str) -> str:
-    """Remove markdown, think tags and their content from the response"""
-    # Remove markdown code blocks
     content = content.replace("```json", "").replace("```", "")
     
-    # Remove text between <think> tags including the tags
     content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
     
     return content.strip()
 
 def generate_roadmap(query: str) -> Optional[Dict[str, Any]]:
-    """
-    Generate a learning roadmap based on a user query using Groq.
-    
-    Args:
-        query: User's query text (e.g., "How to become a backend developer")
-        
-    Returns:
-        A dictionary containing the generated roadmap or None if generation failed
-    """
+
     if not AI_GENERATION_SUPPORTED or not client:
         logger.warning("AI generation is not supported, returning None")
         return None
@@ -53,7 +42,6 @@ def generate_roadmap(query: str) -> Optional[Dict[str, Any]]:
     try:
         logger.info(f"Generating roadmap for query: {query}")
         
-        # System message with instructions for roadmap generation
         system_message = """
         You are an expert in creating educational roadmaps for various fields.
         Generate a comprehensive learning roadmap in JSON format based on the user's query.
@@ -85,8 +73,8 @@ def generate_roadmap(query: str) -> Optional[Dict[str, Any]]:
             ]
         }
         
-        Include 3-5 steps per section, with each step having 2-3 resources.
-        For icons, select from this list: Code, Server, Database, Globe, Terminal, Cpu, Cloud, Lock
+        Include 6 steps per section, with each step having 2-3 resources.
+        For icons, select from Lucid React icon list
         Make sure all JSON is properly formatted and valid.
         Only return the JSON object, with no additional text, comments, or markdown formatting.
         Do not include any thinking process or explanations in the response.
@@ -107,6 +95,8 @@ def generate_roadmap(query: str) -> Optional[Dict[str, Any]]:
         content = chat_completion.choices[0].message.content
         content = clean_content(content)
         
+        print(content)
+
         # Parse the JSON response
         roadmap_data = json.loads(content)
         

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, ARRAY
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, ARRAY, PrimaryKeyConstraint, ForeignKeyConstraint
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -36,13 +36,16 @@ class RoadmapInDB(Base):
     description = Column(String)
     query_text = Column(String)  # Original query text used to generate this roadmap
     
-    steps = relationship("RoadmapStepInDB", back_populates="roadmap")
+    steps = relationship("RoadmapStepInDB", back_populates="roadmap", cascade="all, delete-orphan")
     prompt = relationship("PromptInDB", back_populates="roadmap", uselist=False)
 
 class RoadmapStepInDB(Base):
     __tablename__ = "roadmap_steps"
     
-    id = Column(String, primary_key=True)  # Using string ID like "1-1" from example
+    # Define columns first
+    roadmap_id = Column(Integer, ForeignKey("roadmaps.id"), nullable=False)
+    id = Column(String, nullable=False) # Step ID like "1-1", "1-2"
+    
     title = Column(String, index=True)
     description = Column(String)
     icon = Column(String)
@@ -52,10 +55,14 @@ class RoadmapStepInDB(Base):
     difficulty = Column(Integer)
     tips = Column(String)
     
-    roadmap_id = Column(Integer, ForeignKey("roadmaps.id"))
-    roadmap = relationship("RoadmapInDB", back_populates="steps")
+    # Define composite primary key
+    __table_args__ = (
+        PrimaryKeyConstraint('roadmap_id', 'id'),
+        {},
+    )
     
-    resources = relationship("ResourceInDB", back_populates="step")
+    roadmap = relationship("RoadmapInDB", back_populates="steps")
+    resources = relationship("ResourceInDB", back_populates="step", cascade="all, delete-orphan")
 
 class ResourceInDB(Base):
     __tablename__ = "resources"
@@ -66,7 +73,19 @@ class ResourceInDB(Base):
     source = Column(String)
     description = Column(String)
     
-    step_id = Column(String, ForeignKey("roadmap_steps.id"))
+    # Foreign key columns referencing the composite key of roadmap_steps
+    step_roadmap_id = Column(Integer, nullable=False)
+    step_id = Column(String, nullable=False) 
+    
+    # Define composite foreign key constraint
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['step_roadmap_id', 'step_id'], 
+            ['roadmap_steps.roadmap_id', 'roadmap_steps.id']
+        ),
+        {},
+    )
+
     step = relationship("RoadmapStepInDB", back_populates="resources")
 
 # Pydantic models for API requests/responses
@@ -99,13 +118,14 @@ class ResourceCreate(ResourceBase):
 
 class Resource(ResourceBase):
     id: int
+    step_roadmap_id: int # Ensure Pydantic model includes the composite FK parts
     step_id: str
     
     class Config:
         from_attributes = True
 
 class RoadmapStepBase(BaseModel):
-    id: str
+    id: str # This is the step's string ID like "1-1"
     title: str
     description: str
     icon: str
@@ -119,11 +139,11 @@ class RoadmapStepCreate(RoadmapStepBase):
     resources: List[ResourceCreate]
 
 class RoadmapStep(RoadmapStepBase):
-    roadmap_id: int
+    roadmap_id: int # Include roadmap_id as part of the step identifier
     resources: List[Resource] = []
     
     class Config:
-        from_attributes = True
+        from_attributes = True # Allows mapping from ORM model
 
 class RoadmapBase(BaseModel):
     name: str
@@ -154,9 +174,71 @@ class UserRoadmapProgress(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    step_id = Column(String, ForeignKey("roadmap_steps.id"))
+    step_roadmap_id = Column(Integer) # References composite key
+    step_id = Column(String)          # References composite key
     completed = Column(Boolean, default=False)
     completed_at = Column(DateTime, nullable=True)
     
+    # Define composite foreign key constraint
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['step_roadmap_id', 'step_id'], 
+            ['roadmap_steps.roadmap_id', 'roadmap_steps.id']
+        ),
+        {},
+    )
+    
     user = relationship("UserInDB")
-    step = relationship("RoadmapStepInDB")
+    # step = relationship("RoadmapStepInDB") # Check relationship if needed
+
+# --- Dashboard Models --- 
+
+class DashboardStepProgress(BaseModel):
+    step_id: str
+    completed: bool
+    completed_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class DashboardRoadmapItem(BaseModel):
+    id: int
+    name: str
+    description: str
+    total_steps: int
+    completed_steps: int
+    progress: List[DashboardStepProgress] # Progress for specific steps in this roadmap
+
+    class Config:
+        from_attributes = True # Allows mapping from ORM model if needed
+
+class DashboardResponse(BaseModel):
+    tracked_roadmaps: List[DashboardRoadmapItem]
+
+# --- Roadmap Detail Models --- 
+
+class RoadmapDetailStep(RoadmapStepBase): # Reuse base step info
+    resources: List[Resource] = [] # Include resources for the step
+    progress: Optional[DashboardStepProgress] = None # User's progress on this step
+
+    class Config:
+        from_attributes = True
+
+class RoadmapDetailResponse(RoadmapBase):
+    id: int
+    steps: List[RoadmapDetailStep] = [] 
+
+    class Config:
+        from_attributes = True
+
+# --- Progress Update Models --- 
+
+class UpdateProgressRequest(BaseModel):
+    step_id: str # The string ID of the step (e.g., "1-1")
+    completed: bool # True to mark as completed, False to mark as incomplete
+
+class ProgressUpdateResponse(DashboardStepProgress): # Reuse the progress model
+    roadmap_id: int # Add roadmap_id for context
+    
+    class Config:
+        from_attributes = True

@@ -5,6 +5,7 @@ import logging
 from config import init_db
 from routes.auth import router as auth_router
 from routes.roadmap import router as roadmap_router
+from routes.dashboard import router as dashboard_router
 
 # Configure logger
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +30,7 @@ init_db()
 # Include routers
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 app.include_router(roadmap_router, prefix="/roadmap", tags=["Roadmap"])
+app.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
 
 @app.get("/health")
 def health_check():

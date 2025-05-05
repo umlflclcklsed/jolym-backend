@@ -110,23 +110,38 @@ async def create_prompt(
         # Проверяем наличие похожих roadmap в Pinecone
         similar_roadmap = None
         if PINECONE_SUPPORTED:
+            logger.info(f"Searching for similar roadmap in Pinecone for query: '{prompt.text}'")
+            # Log first few dimensions of the embedding for reference
+            logger.debug(f"Query embedding (first 5 dims): {embedding[:5]}") 
+            
             similar_result = find_similar_roadmap(
                 query_embedding=embedding,
-                threshold=0.85
+                threshold=0.92
             )
             
-            if similar_result and 'roadmap_id' in similar_result.get('metadata', {}):
+            logger.info(f"Pinecone search result: {similar_result}")
+            
+            if similar_result and isinstance(similar_result.get('metadata'), dict) and 'roadmap_id' in similar_result['metadata']:
                 roadmap_id = int(similar_result['metadata']['roadmap_id'])
+                logger.info(f"Found potentially similar roadmap ID from Pinecone: {roadmap_id}")
+                
                 similar_roadmap = db.query(RoadmapInDB).filter(RoadmapInDB.id == roadmap_id).first()
                 
                 if similar_roadmap:
                     # Связываем промпт с существующим roadmap
                     db_prompt.roadmap_id = similar_roadmap.id
                     db.commit()
-                    logger.info(f"Found similar roadmap and reused it: {similar_roadmap.id}")
+                    logger.info(f"Reusing existing roadmap ID: {similar_roadmap.id} based on similarity score: {similar_result.get('score')}")
                     return db_prompt
+                else:
+                    logger.warning(f"Pinecone returned roadmap ID {roadmap_id}, but it was not found in the database.")
+            else:
+                 logger.info("No similar roadmap found in Pinecone above the threshold or result format is invalid.")
+        else:
+            logger.warning("Pinecone is not supported or available, skipping similarity check.")
         
         # Если похожий roadmap не найден, генерируем новый
+        logger.info(f"Proceeding to generate a new roadmap for query: '{prompt.text}'")
         try:
             roadmap_data = generate_roadmap(prompt.text)
             if roadmap_data:
@@ -168,6 +183,7 @@ async def create_prompt(
                 # Создаем шаги для roadmap
                 for step_data in roadmap_data.get("steps", []):
                     db_step = RoadmapStepInDB(
+                        roadmap_id=db_roadmap.id,
                         id=step_data.get("id", ""),
                         title=step_data.get("title", ""),
                         description=step_data.get("description", ""),
@@ -176,8 +192,7 @@ async def create_prompt(
                         icon_bg=step_data.get("iconBg", ""),
                         time_to_complete=step_data.get("timeToComplete", ""),
                         difficulty=step_data.get("difficulty", 1),
-                        tips=step_data.get("tips", ""),
-                        roadmap_id=db_roadmap.id
+                        tips=step_data.get("tips", "")
                     )
                     db.add(db_step)
                     
@@ -188,12 +203,22 @@ async def create_prompt(
                             url=resource_data.get("url", ""),
                             source=resource_data.get("source", ""),
                             description=resource_data.get("description", ""),
+                            step_roadmap_id=db_step.roadmap_id,
                             step_id=db_step.id
                         )
                         db.add(db_resource)
                 
-                db.commit()
-                logger.info(f"Successfully created new roadmap from prompt: {prompt.text}")
+                try:
+                    db.commit()
+                    logger.info(f"Successfully created new roadmap from prompt: {prompt.text}")
+                except IntegrityError as e:
+                    db.rollback()
+                    logger.error(f"Database integrity error during roadmap creation: {e}")
+                    pass
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Unexpected error during roadmap commit: {e}")
+                    raise
             
         except Exception as e:
             logger.error(f"Error generating roadmap: {str(e)}")

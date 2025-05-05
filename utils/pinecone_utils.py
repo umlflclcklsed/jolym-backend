@@ -20,7 +20,6 @@ try:
     pc = Pinecone(api_key=PINECONE_API_KEY)
     index = pc.Index(PINECONE_INDEX_NAME)
     PINECONE_SUPPORTED = True
-    logger.info(f"Successfully connected to Pinecone index: {PINECONE_INDEX_NAME}")
 except Exception as e:
     logger.error(f"Failed to initialize Pinecone: {str(e)}")
     PINECONE_SUPPORTED = False
@@ -42,13 +41,10 @@ def list_available_indexes() -> List[str]:
         # Get list of all indexes
         indexes = pc.list_indexes()
         index_names = [index.name for index in indexes]
-        logger.info(f"Available Pinecone indexes: {index_names}")
         return index_names
     except Exception as e:
         logger.error(f"Error listing Pinecone indexes: {str(e)}")
         return []
-
-print(list_available_indexes())
 
 def store_roadmap_embedding(roadmap_id: int, embedding: List[float], metadata: Dict[str, Any]) -> bool:
     """
