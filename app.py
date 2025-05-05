@@ -47,17 +47,8 @@ async def startup_event():
     if not os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME"):
         logger.warning("AZURE_OPENAI_DEPLOYMENT_NAME not set. Using default: 'text-embedding-ada-002'")
     
-    # Redis check - just import to initialize
-    try:
-        from utils.redis_cache import redis_client
-        if redis_client:
-            logger.info("Redis connection available")
-        else:
-            logger.warning("Redis client not initialized. Caching will be disabled.")
-    except ImportError:
-        logger.warning("Redis utils not found. Caching will be disabled.")
-    except Exception as e:
-        logger.error(f"Error initializing Redis: {str(e)}")
+    # Redis check - disabled, not using Redis
+    logger.info("Redis caching disabled")
 
 @app.get("/health")
 def health_check():

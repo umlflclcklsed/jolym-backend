@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text
 from sqlalchemy.dialects.postgresql import JSON, ARRAY
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -24,6 +24,7 @@ class RoadmapInDB(Base):
     name = Column(String, index=True)
     description = Column(String)
     embedding = Column(ARRAY(Float))  # Vector embedding from OpenAI
+    embedding_text = Column(Text)     # Text representation of embeddings
     query_text = Column(String)  # Original query text used to generate this roadmap
     
     steps = relationship("RoadmapStepInDB", back_populates="roadmap")
