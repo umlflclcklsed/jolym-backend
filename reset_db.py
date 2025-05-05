@@ -2,43 +2,70 @@ from sqlalchemy import create_engine, text
 from config import SQLALCHEMY_DATABASE_URL, init_db
 import os
 import logging
+from pinecone import Pinecone
+from dotenv import load_dotenv
 
 # Configure logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def reset_database():
-    logger.info("Resetting database...")
+    logger.info("Resetting PostgreSQL database...")
     
-    # Drop all tables
+    # Drop all tables and recreate schema
     engine = create_engine(SQLALCHEMY_DATABASE_URL)
-    with engine.connect() as connection:
-        # Drop all tables with CASCADE in a single SQL command
-        connection.execute(text("DROP SCHEMA public CASCADE;"))
-        connection.execute(text("CREATE SCHEMA public;"))
-        connection.execute(text("GRANT ALL ON SCHEMA public TO postgres;"))
-        connection.execute(text("GRANT ALL ON SCHEMA public TO public;"))
-        connection.commit()
-    
-    # Apply pgvector setup
     try:
-        logger.info("Setting up pgvector extension...")
-        script_path = os.path.join(os.path.dirname(__file__), 'setup_pgvector.sql')
-        
-        with open(script_path, 'r') as f:
-            sql_commands = f.read()
-        
         with engine.connect() as connection:
-            connection.execute(text(sql_commands))
+            logger.info("Dropping public schema...")
+            connection.execute(text("DROP SCHEMA public CASCADE;"))
             connection.commit()
-            logger.info("pgvector setup completed")
+            logger.info("Recreating public schema...")
+            connection.execute(text("CREATE SCHEMA public;"))
+            # Optional: Grant permissions if needed, adjust user/role as necessary
+            # connection.execute(text("GRANT ALL ON SCHEMA public TO postgres;"))
+            # connection.execute(text("GRANT ALL ON SCHEMA public TO public;"))
+            connection.commit()
+            logger.info("Schema reset complete.")
     except Exception as e:
-        logger.error(f"Error setting up pgvector: {str(e)}", exc_info=True)
-    
-    # Recreate tables
-    init_db()
-    
-    logger.info("Database reset successfully.")
+        logger.error(f"Error dropping/creating schema: {str(e)}", exc_info=True)
+        # Decide if you want to proceed or stop if schema reset fails
+        # return # Optional: stop here if schema reset fails
+
+    # Recreate tables based on SQLAlchemy models
+    try:
+        logger.info("Recreating tables from models...")
+        init_db() # This should call Base.metadata.create_all(engine)
+        logger.info("Tables recreated successfully.")
+    except Exception as e:
+        logger.error(f"Error recreating tables: {str(e)}", exc_info=True)
+
+def reset_pinecone():
+    logger.info("Resetting Pinecone index...")
+    load_dotenv()
+    PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+    PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "roadmaps")
+
+    if not PINECONE_API_KEY or not PINECONE_INDEX_NAME:
+        logger.warning("Pinecone API Key or Index Name not configured. Skipping Pinecone reset.")
+        return
+
+    try:
+        pc = Pinecone(api_key=PINECONE_API_KEY)
+        logger.info(f"Checking if index '{PINECONE_INDEX_NAME}' exists...")
+        if PINECONE_INDEX_NAME in [idx.name for idx in pc.list_indexes()]:
+            index = pc.Index(PINECONE_INDEX_NAME)
+            logger.info(f"Deleting all vectors from index '{PINECONE_INDEX_NAME}'...")
+            try:
+                # Attempt to delete all vectors
+                index.delete(delete_all=True) 
+                logger.info("Deletion complete.")
+            except Exception as delete_err:
+                logger.error(f"Failed to delete all vectors: {delete_err}. Manual deletion might be required.")
+        else:
+            logger.info(f"Index '{PINECONE_INDEX_NAME}' not found. No vectors to delete.")
+    except Exception as e:
+        logger.error(f"An error occurred during Pinecone reset: {str(e)}", exc_info=True)
 
 if __name__ == "__main__":
-    reset_database() 
+    reset_database()
+    reset_pinecone() 
