@@ -2,42 +2,35 @@ import os
 import json
 import logging
 from typing import Dict, List, Any, Optional
+from dotenv import load_dotenv
+from groq import Groq
 
 # Configure logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Azure OpenAI configuration
-AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
-AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME_CHAT", "gpt-4")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2023-05-15")
+load_dotenv()
 
-# Configure Azure OpenAI client
+# Groq configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# Configure Groq client
 client = None
 AI_GENERATION_SUPPORTED = True
 try:
-    from openai import AzureOpenAI
-    if AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT:
-        client = AzureOpenAI(
-            api_key=AZURE_OPENAI_API_KEY,
-            api_version=AZURE_OPENAI_API_VERSION,
-            azure_endpoint=AZURE_OPENAI_ENDPOINT
-        )
-        logger.info("Azure OpenAI client initialized successfully")
+    if GROQ_API_KEY:
+        client = Groq(api_key=GROQ_API_KEY)
+        logger.info("Groq client initialized successfully")
     else:
-        logger.warning("Azure OpenAI credentials not found. AI generation will be disabled.")
+        logger.warning("Groq API key not found. AI generation will be disabled.")
         AI_GENERATION_SUPPORTED = False
-except ImportError:
-    logger.warning("OpenAI module not installed. AI generation will be disabled.")
-    AI_GENERATION_SUPPORTED = False
 except Exception as e:
-    logger.error(f"Error initializing Azure OpenAI client: {str(e)}")
+    logger.error(f"Error initializing Groq client: {str(e)}")
     AI_GENERATION_SUPPORTED = False
 
 def generate_roadmap(query: str) -> Optional[Dict[str, Any]]:
     """
-    Generate a learning roadmap based on a user query using Azure OpenAI.
+    Generate a learning roadmap based on a user query using Groq.
     
     Args:
         query: User's query text (e.g., "How to become a backend developer")
@@ -90,19 +83,19 @@ def generate_roadmap(query: str) -> Optional[Dict[str, Any]]:
         Only return the JSON object, with no additional text or comments.
         """
         
-        # Generate roadmap using Azure OpenAI Chat API
-        response = client.chat.completions.create(
-            deployment_id=AZURE_OPENAI_DEPLOYMENT_NAME,
+        # Generate roadmap using Groq Chat API
+        chat_completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": query}
             ],
+            model="mixtral-8x7b-32768",  # Using Mixtral model
             temperature=0.7,
             max_tokens=3000
         )
         
         # Extract and parse the generated content
-        content = response.choices[0].message.content.strip()
+        content = chat_completion.choices[0].message.content.strip()
         
         # Parse the JSON response
         roadmap_data = json.loads(content)

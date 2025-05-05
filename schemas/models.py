@@ -1,12 +1,24 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, ARRAY
 from sqlalchemy.dialects.postgresql import JSON, ARRAY
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
+from pgvector.sqlalchemy import Vector
 
 Base = declarative_base()
+
+class PromptInDB(Base):
+    __tablename__ = "prompts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    text = Column(String, index=True)
+    embedding = Column(ARRAY(Float))  # Embedding вектор
+    created_at = Column(DateTime, default=datetime.utcnow)
+    roadmap_id = Column(Integer, ForeignKey("roadmaps.id"), nullable=True)
+    
+    roadmap = relationship("RoadmapInDB", back_populates="prompt")
 
 class UserInDB(Base):
     __tablename__ = "users"
@@ -28,6 +40,7 @@ class RoadmapInDB(Base):
     query_text = Column(String)  # Original query text used to generate this roadmap
     
     steps = relationship("RoadmapStepInDB", back_populates="roadmap")
+    prompt = relationship("PromptInDB", back_populates="roadmap", uselist=False)
 
 class RoadmapStepInDB(Base):
     __tablename__ = "roadmap_steps"

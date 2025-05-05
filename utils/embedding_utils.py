@@ -1,7 +1,7 @@
 import os
-import openai
+import requests
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict, Union
 from dotenv import load_dotenv
 
 # Configure logger
@@ -10,42 +10,68 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Flag to indicate if embeddings are supported
-EMBEDDINGS_SUPPORTED = True
+class ClipEmbedder:
+    def __init__(self):
+        self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        self.api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        self.deployment = "openai-clip-image-text-embed-11"
+        
+        if not all([self.endpoint, self.api_key, self.deployment]):
+            logger.error("Missing required environment variables for CLIP API")
+            raise ValueError("Missing required environment variables")
+            
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+            "azureml-model-deployment": self.deployment
+        }
 
-# Azure OpenAI configuration
-AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
-AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "text-embedding-ada-002")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2023-05-15")
+    def get_text_embeddings(self, texts: List[str]) -> List[Dict]:
+        """Получает эмбеддинги для списка текстов"""
+        try:
+            payload = {
+                "input_data": {
+                    "columns": ["image", "text"],
+                    "index": list(range(len(texts))),
+                    "data": [["", text] for text in texts]
+                }
+            }
 
-# Configure Azure OpenAI client
-client = None
+            response = requests.post(
+                self.endpoint,
+                headers=self.headers,
+                json=payload,
+                timeout=15
+            )
+
+            response.raise_for_status()
+            return response.json()
+            
+        except Exception as e:
+            logger.error(f"API Error: {str(e)}")
+            raise
+
+    def get_text_embedding(self, text: str) -> List[float]:
+        """Получает эмбеддинг для одного текста"""
+        try:
+            results = self.get_text_embeddings([text])
+            return results[0]['text_features']
+        except Exception as e:
+            logger.error(f"Error getting embedding for text: {str(e)}")
+            return [0.0] * 512  # CLIP обычно возвращает 512-мерные векторы
+
+# Глобальный экземпляр embedder
 try:
-    from openai import AzureOpenAI
-    if AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT:
-        client = AzureOpenAI(
-            api_key=AZURE_OPENAI_API_KEY,
-            api_version=AZURE_OPENAI_API_VERSION,
-            azure_endpoint=AZURE_OPENAI_ENDPOINT
-        )
-        logger.info("Azure OpenAI client initialized successfully")
-    else:
-        logger.warning("Azure OpenAI credentials not found. Embeddings will be disabled.")
-        EMBEDDINGS_SUPPORTED = False
-except ImportError:
-    logger.warning("OpenAI module not installed. Embeddings will be disabled.")
-    EMBEDDINGS_SUPPORTED = False
+    embedder = ClipEmbedder()
+    EMBEDDINGS_SUPPORTED = True
 except Exception as e:
-    logger.error(f"Error initializing Azure OpenAI client: {str(e)}")
+    logger.error(f"Failed to initialize CLIP embedder: {str(e)}")
+    embedder = None
     EMBEDDINGS_SUPPORTED = False
-
-# Model configurations
-EMBEDDING_DIMENSIONS = 1536  # Dimensions for text embeddings
 
 def generate_embedding(text: str) -> List[float]:
     """
-    Generate an embedding vector for the provided text using Azure OpenAI.
+    Generate an embedding vector for the provided text using CLIP API.
     
     Args:
         text: The text to generate an embedding for
@@ -53,30 +79,23 @@ def generate_embedding(text: str) -> List[float]:
     Returns:
         A list of floats representing the embedding vector
     """
-    if not EMBEDDINGS_SUPPORTED or not client:
+    if not EMBEDDINGS_SUPPORTED or not embedder:
         logger.warning("Embeddings are not supported, returning empty vector")
-        return [0.0] * EMBEDDING_DIMENSIONS
+        return [0.0] * 512
         
     try:
         # Clean and prepare text
         text = text.replace("\n", " ").strip()
         
-        # Generate embedding using Azure OpenAI
-        response = client.embeddings.create(
-            input=[text],
-            deployment_id=AZURE_OPENAI_DEPLOYMENT_NAME
-        )
-        
-        # Extract embedding vector
-        embedding = response.data[0].embedding
+        # Generate embedding
+        embedding = embedder.get_text_embedding(text)
         logger.info(f"Generated embedding with {len(embedding)} dimensions")
         
         return embedding
     
     except Exception as e:
         logger.error(f"Error generating embedding: {str(e)}", exc_info=True)
-        # Return empty vector as fallback
-        return [0.0] * EMBEDDING_DIMENSIONS
+        return [0.0] * 512
 
 def cosine_similarity(embedding1: List[float], embedding2: List[float]) -> float:
     """
