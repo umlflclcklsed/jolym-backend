@@ -1,11 +1,10 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, ARRAY
-from sqlalchemy.dialects.postgresql import JSON, ARRAY
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
-from pgvector.sqlalchemy import Vector
 
 Base = declarative_base()
 
@@ -14,7 +13,7 @@ class PromptInDB(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     text = Column(String, index=True)
-    embedding = Column(ARRAY(Float))  # Embedding вектор
+    embedding = Column(ARRAY(Float))  # Временно храним embedding для поиска похожих промптов
     created_at = Column(DateTime, default=datetime.utcnow)
     roadmap_id = Column(Integer, ForeignKey("roadmaps.id"), nullable=True)
     
@@ -35,8 +34,6 @@ class RoadmapInDB(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     description = Column(String)
-    embedding = Column(ARRAY(Float))  # Vector embedding from OpenAI
-    embedding_text = Column(Text)     # Text representation of embeddings
     query_text = Column(String)  # Original query text used to generate this roadmap
     
     steps = relationship("RoadmapStepInDB", back_populates="roadmap")

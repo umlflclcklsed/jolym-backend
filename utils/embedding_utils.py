@@ -70,15 +70,7 @@ except Exception as e:
     EMBEDDINGS_SUPPORTED = False
 
 def generate_embedding(text: str) -> List[float]:
-    """
-    Generate an embedding vector for the provided text using CLIP API.
-    
-    Args:
-        text: The text to generate an embedding for
-        
-    Returns:
-        A list of floats representing the embedding vector
-    """
+
     if not EMBEDDINGS_SUPPORTED or not embedder:
         logger.warning("Embeddings are not supported, returning empty vector")
         return [0.0] * 512
@@ -98,16 +90,7 @@ def generate_embedding(text: str) -> List[float]:
         return [0.0] * 512
 
 def cosine_similarity(embedding1: List[float], embedding2: List[float]) -> float:
-    """
-    Calculate cosine similarity between two embeddings.
-    
-    Args:
-        embedding1: First embedding vector
-        embedding2: Second embedding vector
-        
-    Returns:
-        Similarity score between 0 and 1 (1 = most similar)
-    """
+
     if not embedding1 or not embedding2:
         return 0.0
     

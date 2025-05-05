@@ -8,13 +8,34 @@ from config import get_db
 from schemas.models import *
 from typing import List, Optional
 from utils.ai_roadmap_generator import generate_roadmap
-from utils.embedding_utils import generate_embedding, cosine_similarity
+from utils.embedding_utils import generate_embedding
+# Import Pinecone utilities with better error handling
+import importlib.util
+import sys
 from pydantic import BaseModel
 from datetime import datetime
 
 # Set up logging
 logging.basicConfig(level=logging.INFO) 
 logger = logging.getLogger(__name__)
+
+# Try to import Pinecone utilities
+try:
+    if importlib.util.find_spec("pinecone") is not None:
+        from utils.pinecone_utils import store_roadmap_embedding, find_similar_roadmap, PINECONE_SUPPORTED, list_available_indexes
+        logger.info("Successfully imported Pinecone utilities")
+    else:
+        logger.warning("Pinecone package not found, similarity search will be disabled")
+        store_roadmap_embedding = lambda *args, **kwargs: False
+        find_similar_roadmap = lambda *args, **kwargs: None
+        list_available_indexes = lambda: []
+        PINECONE_SUPPORTED = False
+except ImportError as e:
+    logger.warning(f"Failed to import Pinecone utilities: {str(e)}")
+    store_roadmap_embedding = lambda *args, **kwargs: False
+    find_similar_roadmap = lambda *args, **kwargs: None
+    list_available_indexes = lambda: []
+    PINECONE_SUPPORTED = False
 
 router = APIRouter()
 
@@ -72,7 +93,7 @@ async def create_prompt(
     db: Session = Depends(get_db),
     current_user: UserInDB = Depends(get_current_user)
 ):
-    """Создает новый промпт, генерирует его embedding и пытается создать roadmap"""
+    """Создает новый промпт и генерирует roadmap, если похожего еще нет в базе"""
     try:
         # Генерируем embedding для промпта
         embedding = generate_embedding(prompt.text)
@@ -86,7 +107,26 @@ async def create_prompt(
         db.commit()
         db.refresh(db_prompt)
         
-        # Пытаемся сгенерировать roadmap
+        # Проверяем наличие похожих roadmap в Pinecone
+        similar_roadmap = None
+        if PINECONE_SUPPORTED:
+            similar_result = find_similar_roadmap(
+                query_embedding=embedding,
+                threshold=0.85
+            )
+            
+            if similar_result and 'roadmap_id' in similar_result.get('metadata', {}):
+                roadmap_id = int(similar_result['metadata']['roadmap_id'])
+                similar_roadmap = db.query(RoadmapInDB).filter(RoadmapInDB.id == roadmap_id).first()
+                
+                if similar_roadmap:
+                    # Связываем промпт с существующим roadmap
+                    db_prompt.roadmap_id = similar_roadmap.id
+                    db.commit()
+                    logger.info(f"Found similar roadmap and reused it: {similar_roadmap.id}")
+                    return db_prompt
+        
+        # Если похожий roadmap не найден, генерируем новый
         try:
             roadmap_data = generate_roadmap(prompt.text)
             if roadmap_data:
@@ -94,13 +134,32 @@ async def create_prompt(
                 db_roadmap = RoadmapInDB(
                     name=roadmap_data.get("name", "Generated Roadmap"),
                     description=roadmap_data.get("description", ""),
-                    embedding=embedding,  # Используем тот же embedding
-                    embedding_text=prompt.text,
                     query_text=prompt.text
                 )
                 db.add(db_roadmap)
                 db.commit()
                 db.refresh(db_roadmap)
+                
+                # Сохраняем embedding в Pinecone
+                if PINECONE_SUPPORTED:
+                    # Add roadmap metadata for easier retrieval
+                    roadmap_metadata = {
+                        "roadmap_id": db_roadmap.id,
+                        "name": db_roadmap.name,
+                        "description": db_roadmap.description,
+                        "query": prompt.text
+                    }
+                    
+                    try:
+                        store_roadmap_embedding(
+                            roadmap_id=db_roadmap.id,
+                            embedding=embedding,
+                            metadata=roadmap_metadata
+                        )
+                        logger.info(f"Successfully stored roadmap embedding in Pinecone for roadmap ID: {db_roadmap.id}")
+                    except Exception as e:
+                        logger.error(f"Failed to store embedding in Pinecone: {str(e)}")
+                        # Continue even if Pinecone storage fails
                 
                 # Связываем промпт с roadmap
                 db_prompt.roadmap_id = db_roadmap.id
@@ -134,7 +193,7 @@ async def create_prompt(
                         db.add(db_resource)
                 
                 db.commit()
-                logger.info(f"Successfully created roadmap from prompt: {prompt.text}")
+                logger.info(f"Successfully created new roadmap from prompt: {prompt.text}")
             
         except Exception as e:
             logger.error(f"Error generating roadmap: {str(e)}")
@@ -158,22 +217,25 @@ async def find_similar_prompts(
     db: Session = Depends(get_db),
     current_user: UserInDB = Depends(get_current_user)
 ):
-    """Находит похожие промпты на основе косинусного сходства"""
+    """Находит похожие промпты, используя Pinecone для поиска"""
     try:
         query_embedding = generate_embedding(text)
         
-        prompts = db.query(PromptInDB).all()
+        if PINECONE_SUPPORTED:
+            # Ищем похожие roadmap в Pinecone
+            similar_result = find_similar_roadmap(
+                query_embedding=query_embedding,
+                threshold=threshold
+            )
+            
+            if similar_result and 'roadmap_id' in similar_result.get('metadata', {}):
+                roadmap_id = int(similar_result['metadata']['roadmap_id'])
+                # Получаем промпты, связанные с найденным roadmap
+                prompts = db.query(PromptInDB).filter(PromptInDB.roadmap_id == roadmap_id).all()
+                return prompts
         
-        similar_prompts = []
-        for prompt in prompts:
-            if prompt.embedding:
-                similarity = cosine_similarity(query_embedding, prompt.embedding)
-                if similarity >= threshold:
-                    similar_prompts.append((prompt, similarity))
-        
-        # Сортируем по убыванию сходства и берем top-N
-        similar_prompts.sort(key=lambda x: x[1], reverse=True)
-        return [prompt for prompt, _ in similar_prompts[:limit]]
+        # Если Pinecone недоступен или нет результатов, возвращаем пустой список
+        return []
         
     except Exception as e:
         logger.error(f"Error finding similar prompts: {str(e)}", exc_info=True)
@@ -185,3 +247,22 @@ async def find_similar_prompts(
 @router.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+# Add a new endpoint for Pinecone info and indexes
+@router.get("/pinecone/indexes")
+async def get_pinecone_indexes(
+    current_user: UserInDB = Depends(get_current_user)
+):
+    """Возвращает список доступных индексов Pinecone"""
+    try:
+        indexes = list_available_indexes()
+        return {
+            "pinecone_supported": PINECONE_SUPPORTED,
+            "indexes": indexes
+        }
+    except Exception as e:
+        logger.error(f"Error getting Pinecone indexes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get Pinecone indexes"
+        )

@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import re
 from typing import Dict, List, Any, Optional
 from dotenv import load_dotenv
 from groq import Groq
@@ -18,13 +19,22 @@ AI_GENERATION_SUPPORTED = True
 try:
     if GROQ_API_KEY:
         client = Groq(api_key=GROQ_API_KEY)
-        logger.info("Groq client initialized successfully")
     else:
         logger.warning("Groq API key not found. AI generation will be disabled.")
         AI_GENERATION_SUPPORTED = False
 except Exception as e:
     logger.error(f"Error initializing Groq client: {str(e)}")
     AI_GENERATION_SUPPORTED = False
+
+def clean_content(content: str) -> str:
+    """Remove markdown, think tags and their content from the response"""
+    # Remove markdown code blocks
+    content = content.replace("```json", "").replace("```", "")
+    
+    # Remove text between <think> tags including the tags
+    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+    
+    return content.strip()
 
 def generate_roadmap(query: str) -> Optional[Dict[str, Any]]:
     """
@@ -54,14 +64,14 @@ def generate_roadmap(query: str) -> Optional[Dict[str, Any]]:
             "description": "Description of what this roadmap covers",
             "steps": [
                 {
-                    "id": "1-1", // Format: "section-number"
+                    "id": "1-1",
                     "title": "Step title",
                     "description": "Detailed description of this step",
                     "icon": "Icon name",
                     "iconColor": "text-blue-600",
                     "iconBg": "bg-blue-100",
                     "timeToComplete": "Estimated time (e.g., 2-4 weeks)",
-                    "difficulty": 1, // 1 = beginner, 2 = intermediate, 3 = advanced
+                    "difficulty": 1,
                     "resources": [
                         {
                             "title": "Resource title",
@@ -78,7 +88,8 @@ def generate_roadmap(query: str) -> Optional[Dict[str, Any]]:
         Include 3-5 steps per section, with each step having 2-3 resources.
         For icons, select from this list: Code, Server, Database, Globe, Terminal, Cpu, Cloud, Lock
         Make sure all JSON is properly formatted and valid.
-        Only return the JSON object, with no additional text or comments.
+        Only return the JSON object, with no additional text, comments, or markdown formatting.
+        Do not include any thinking process or explanations in the response.
         """
         
         # Generate roadmap using Groq Chat API
@@ -87,14 +98,15 @@ def generate_roadmap(query: str) -> Optional[Dict[str, Any]]:
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": query}
             ],
-            model="deepseek-r1-distill-llama-70b",  # Using Mixtral model
+            model="deepseek-r1-distill-llama-70b",
             temperature=0.7,
             max_tokens=3000
         )
         
-        # Extract and parse the generated content
-        content = chat_completion.choices[0].message.content.strip()
-        print(content)
+        # Extract and clean the generated content
+        content = chat_completion.choices[0].message.content
+        content = clean_content(content)
+        
         # Parse the JSON response
         roadmap_data = json.loads(content)
         
