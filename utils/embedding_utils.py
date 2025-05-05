@@ -2,10 +2,13 @@ import os
 import openai
 import logging
 from typing import List, Optional
+from dotenv import load_dotenv
 
 # Configure logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+load_dotenv()
 
 # Flag to indicate if embeddings are supported
 EMBEDDINGS_SUPPORTED = True

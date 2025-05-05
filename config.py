@@ -1,9 +1,14 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from schemas.models import Base
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # PostgreSQL connection string
-SQLALCHEMY_DATABASE_URL = "postgresql://postgres:xktUIzvQtSreaaKTKELLlBIJukLJgLrc@caboose.proxy.rlwy.net:45936/railway"
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_POSTGRES_URL")
 
 # Remove SQLite-specific connect_args
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
