@@ -20,6 +20,40 @@ router = APIRouter()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """Получает текущего пользователя по токену"""
+    try:
+        payload = verify_access_token(token)
+        if payload is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        user_email = payload.get("sub")
+        if not user_email:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token content",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        user = db.query(UserInDB).filter(UserInDB.email == user_email).first()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="User not found"
+            )
+        
+        return user
+    except Exception as e:
+        logger.error(f"Error authenticating user: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed"
+        )
+
 class PromptRequest(BaseModel):
     text: str
 
@@ -126,13 +160,10 @@ async def find_similar_prompts(
 ):
     """Находит похожие промпты на основе косинусного сходства"""
     try:
-        # Генерируем embedding для запроса
         query_embedding = generate_embedding(text)
         
-        # Получаем все промпты
         prompts = db.query(PromptInDB).all()
         
-        # Вычисляем сходство и сортируем
         similar_prompts = []
         for prompt in prompts:
             if prompt.embedding:
@@ -151,3 +182,6 @@ async def find_similar_prompts(
             detail="Failed to find similar prompts"
         )
 
+@router.get("/health")
+async def health_check():
+    return {"status": "ok"}

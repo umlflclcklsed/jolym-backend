@@ -28,27 +28,7 @@ init_db()
 
 # Include routers
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
-app.include_router(roadmap_router)
-
-# Check environment variables on startup
-@app.on_event("startup")
-async def startup_event():
-    # Check Azure OpenAI configuration
-    if not os.environ.get("AZURE_OPENAI_API_KEY") or not os.environ.get("AZURE_OPENAI_ENDPOINT"):
-        logger.warning("Azure OpenAI credentials not set. AI features will be limited.")
-    else:
-        logger.info("Azure OpenAI credentials found.")
-    
-    # Check chat model deployment name
-    if not os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME_CHAT"):
-        logger.warning("AZURE_OPENAI_DEPLOYMENT_NAME_CHAT not set. Using default: 'gpt-4'")
-    
-    # Check embedding model deployment name
-    if not os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME"):
-        logger.warning("AZURE_OPENAI_DEPLOYMENT_NAME not set. Using default: 'text-embedding-ada-002'")
-    
-    # Redis check - disabled, not using Redis
-    logger.info("Redis caching disabled")
+app.include_router(roadmap_router, prefix="/roadmap", tags=["Roadmap"])
 
 @app.get("/health")
 def health_check():

@@ -11,10 +11,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Groq configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Configure Groq client
 client = None
 AI_GENERATION_SUPPORTED = True
 try:
@@ -89,14 +87,14 @@ def generate_roadmap(query: str) -> Optional[Dict[str, Any]]:
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": query}
             ],
-            model="mixtral-8x7b-32768",  # Using Mixtral model
+            model="deepseek-r1-distill-llama-70b",  # Using Mixtral model
             temperature=0.7,
             max_tokens=3000
         )
         
         # Extract and parse the generated content
         content = chat_completion.choices[0].message.content.strip()
-        
+        print(content)
         # Parse the JSON response
         roadmap_data = json.loads(content)
         
