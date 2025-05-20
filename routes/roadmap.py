@@ -117,12 +117,12 @@ async def create_prompt(
             similar_result = find_similar_roadmap(
                 query_embedding=embedding,
                 threshold=0.92
-            )[0]
+            )
             
             logger.info(f"Pinecone search result: {similar_result}")
             
-            if similar_result and isinstance(similar_result.get('metadata'), dict) and 'roadmap_id' in similar_result['metadata']:
-                roadmap_id = int(similar_result['metadata']['roadmap_id'])
+            if similar_result and len(similar_result) > 0 and isinstance(similar_result[0].get('metadata'), dict) and 'roadmap_id' in similar_result[0]['metadata']:
+                roadmap_id = int(similar_result[0]['metadata']['roadmap_id'])
                 logger.info(f"Found potentially similar roadmap ID from Pinecone: {roadmap_id}")
                 
                 similar_roadmap = db.query(RoadmapInDB).filter(RoadmapInDB.id == roadmap_id).first()
@@ -131,7 +131,7 @@ async def create_prompt(
                     # Связываем промпт с существующим roadmap
                     db_prompt.roadmap_id = similar_roadmap.id
                     db.commit()
-                    logger.info(f"Reusing existing roadmap ID: {similar_roadmap.id} based on similarity score: {similar_result.get('score')}")
+                    logger.info(f"Reusing existing roadmap ID: {similar_roadmap.id} based on similarity score: {similar_result[0].get('score')}")
                     return db_prompt
                 else:
                     logger.warning(f"Pinecone returned roadmap ID {roadmap_id}, but it was not found in the database.")
