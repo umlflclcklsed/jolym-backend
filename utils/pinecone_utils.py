@@ -100,22 +100,26 @@ def find_similar_roadmap(query_embedding: List[float], threshold: float = 0.85) 
         # Query Pinecone for similar vectors
         results = index.query(
             vector=query_embedding,
-            top_k=1,
+            top_k=3,
             include_metadata=True
         )
         
         # Check if we have matches above threshold
         if results.matches and len(results.matches) > 0 and results.matches[0].score >= threshold:
-            match = results.matches[0]
-            logger.info(f"Found similar roadmap with ID: {match.metadata.get('roadmap_id')} (score: {match.score})")
-            
-            # Return the metadata
-            return {
+            matches = results.matches
+            result = []
+
+            for match in matches:
+                result.append({
                 "id": match.id,
                 "score": match.score,
                 "roadmap_id": match.metadata.get("roadmap_id"),
                 "metadata": match.metadata
-            }
+            })
+            # logger.info(f"Found similar roadmap with ID: {match.metadata.get('roadmap_id')} (score: {match.score})")
+            
+            # Return the metadata
+            return result 
         
         logger.info(f"No similar roadmaps found above threshold: {threshold}")
         return None

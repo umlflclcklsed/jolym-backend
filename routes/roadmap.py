@@ -117,7 +117,7 @@ async def create_prompt(
             similar_result = find_similar_roadmap(
                 query_embedding=embedding,
                 threshold=0.92
-            )
+            )[0]
             
             logger.info(f"Pinecone search result: {similar_result}")
             
@@ -248,20 +248,18 @@ async def find_similar_prompts(
         
         if PINECONE_SUPPORTED:
             # Ищем похожие roadmap в Pinecone
-            similar_result = find_similar_roadmap(
+            similar_results = find_similar_roadmap(
                 query_embedding=query_embedding,
                 threshold=threshold
             )
-            
-            if similar_result and 'roadmap_id' in similar_result.get('metadata', {}):
-                roadmap_id = int(similar_result['metadata']['roadmap_id'])
-                # Получаем промпты, связанные с найденным roadmap
-                prompts = db.query(PromptInDB).filter(PromptInDB.roadmap_id == roadmap_id).all()
-                return prompts
-        
-        # Если Pinecone недоступен или нет результатов, возвращаем пустой список
-        return []
-        
+            prompts = []
+            for similar_result in similar_results:
+                if similar_result and 'roadmap_id' in similar_result.get('metadata', {}):
+                    roadmap_id = int(similar_result['metadata']['roadmap_id'])
+                    prompts.append(db.query(PromptInDB).filter(PromptInDB.roadmap_id == roadmap_id).first())
+            print(prompts)
+            return prompts
+                
     except Exception as e:
         logger.error(f"Error finding similar prompts: {str(e)}", exc_info=True)
         raise HTTPException(
