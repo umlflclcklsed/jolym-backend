@@ -3,10 +3,15 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 import logging
 from sqlalchemy.exc import IntegrityError
-from auth_utils import hash_password, verify_password, create_access_token, verify_access_token
+from auth_utils import (
+    hash_password, verify_password, create_access_token, verify_access_token,
+    generate_password_reset_token, create_password_reset_token, verify_password_reset_token,
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES
+)
 from config import get_db
 from schemas.models import *
-from datetime import timedelta
+from datetime import timedelta, datetime
+from utils.email_utils import send_password_reset_email
 
 # Set up logging
 logging.basicConfig(level=logging.INFO) 
@@ -168,4 +173,133 @@ def get_me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while retrieving your profile"
+        )
+
+@router.post("/forgot-password", response_model=PasswordResetResponse)
+def forgot_password(request: PasswordResetRequest, db: Session = Depends(get_db)):
+    """
+    Request a password reset link to be sent to the user's email.
+    """
+    try:
+        # Find the user by email
+        user = db.query(UserInDB).filter(UserInDB.email == request.email).first()
+        
+        # For security reasons, don't reveal if the email exists or not
+        if not user:
+            logger.info(f"Password reset requested for non-existent email: {request.email}")
+            return {"message": "If your email is registered, you will receive a password reset link.", "success": True}
+        
+        # Generate a reset token
+        reset_token = create_password_reset_token(user.id)
+        
+        # Store the token in the database
+        token_expires = datetime.utcnow() + timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRE_MINUTES)
+        
+        # Check if there's an existing token and update it, or create a new one
+        db_token = db.query(PasswordResetToken).filter(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used == False
+        ).first()
+        
+        if db_token:
+            db_token.token = reset_token
+            db_token.expires_at = token_expires
+            db_token.used = False
+            db_token.created_at = datetime.utcnow()
+        else:
+            db_token = PasswordResetToken(
+                user_id=user.id,
+                token=reset_token,
+                expires_at=token_expires
+            )
+            db.add(db_token)
+        
+        db.commit()
+        
+        # Send the reset email
+        email_sent = send_password_reset_email(user.email, reset_token)
+        
+        if not email_sent:
+            logger.error(f"Failed to send password reset email to {user.email}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send password reset email. Please try again later."
+            )
+        
+        logger.info(f"Password reset email sent to {user.email}")
+        return {"message": "If your email is registered, you will receive a password reset link.", "success": True}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error in forgot_password: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred. Please try again later."
+        )
+
+@router.post("/reset-password", response_model=PasswordResetResponse)
+def reset_password(request: PasswordResetConfirm, db: Session = Depends(get_db)):
+    """
+    Reset a user's password using a valid reset token.
+    """
+    try:
+        # Verify the token
+        payload = verify_password_reset_token(request.token)
+        if not payload:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired token"
+            )
+        
+        user_id = int(payload.get("sub"))
+        
+        # Find the token in the database
+        db_token = db.query(PasswordResetToken).filter(
+            PasswordResetToken.token == request.token,
+            PasswordResetToken.used == False,
+            PasswordResetToken.expires_at > datetime.utcnow()
+        ).first()
+        
+        if not db_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired token"
+            )
+        
+        # Find the user
+        user = db.query(UserInDB).filter(UserInDB.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Validate the new password
+        if len(request.new_password) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must be at least 8 characters long"
+            )
+        
+        # Update the user's password
+        user.hashed_password = hash_password(request.new_password)
+        
+        # Mark the token as used
+        db_token.used = True
+        
+        db.commit()
+        
+        logger.info(f"Password reset successful for user ID: {user_id}")
+        return {"message": "Password has been reset successfully", "success": True}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error in reset_password: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred. Please try again later."
         )
