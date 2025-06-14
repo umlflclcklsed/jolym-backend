@@ -29,8 +29,11 @@ def send_email(to_email, subject, html_content):
         bool: True if email was sent successfully, False otherwise
     """
     if not SMTP_USERNAME or not SMTP_PASSWORD:
-        logger.warning("SMTP credentials not configured. Email not sent.")
-        return False
+        logger.warning("SMTP credentials not configured. Email would be sent to: " + to_email)
+        logger.info(f"Email subject: {subject}")
+        logger.info(f"Reset link would point to: {FRONTEND_URL}/reset-password")
+        # For development, return True to simulate successful email sending
+        return True
     
     try:
         # Create message

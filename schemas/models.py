@@ -13,7 +13,7 @@ class PromptInDB(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     text = Column(String, index=True)
-    embedding = Column(ARRAY(Float))  # Временно храним embedding для поиска похожих промптов
+    embedding = Column(String)  # Store as JSON string for SQLite compatibility
     created_at = Column(DateTime, default=datetime.utcnow)
     roadmap_id = Column(Integer, ForeignKey("roadmaps.id"), nullable=True)
     

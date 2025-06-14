@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 import logging
+import os
 from sqlalchemy.exc import IntegrityError
 from auth_utils import (
     hash_password, verify_password, create_access_token, verify_access_token,
@@ -191,6 +192,10 @@ def forgot_password(request: PasswordResetRequest, db: Session = Depends(get_db)
         
         # Generate a reset token
         reset_token = create_password_reset_token(user.id)
+        
+        # For development, log the token
+        logger.info(f"DEVELOPMENT: Reset token for {user.email}: {reset_token}")
+        logger.info(f"DEVELOPMENT: Reset URL: {os.getenv('FRONTEND_URL', 'http://localhost:3000')}/reset-password?token={reset_token}")
         
         # Store the token in the database
         token_expires = datetime.utcnow() + timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRE_MINUTES)
